@@ -6,7 +6,7 @@ on:
 jobs:
   deployment:
     runs-on: windows-2022
-    timeout-minutes: 360
+    timeout-minutes: 40
 
     env:
       # ====================================================
@@ -227,7 +227,7 @@ jobs:
       - name: Keep Session Alive
         shell: pwsh
         run: |
-          $KeepAliveMinutes = 350
+          $KeepAliveMinutes = 4
           Write-Host "==== SESSION STARTED: $KeepAliveMinutes Minutes ===="
           $sw = [Diagnostics.Stopwatch]::StartNew()
           while ($sw.Elapsed.TotalMinutes -lt $KeepAliveMinutes) {
