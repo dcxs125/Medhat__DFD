@@ -1,0 +1,97 @@
+name: Ubuntu RDP - GUI Fixed
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ubuntu-gui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    env:
+      # اسم المستخدم وكلمة المرور
+      aa2: "XCDOOD"
+      aa3: "Zxxz4444"
+      # التوكن يتم جلبه من أسرار المستودع
+      NGROK_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ====================================================
+      # 1. تثبيت الواجهة الرسومية (XFCE) وخدمة RDP
+      # ====================================================
+      - name: Install Desktop Env (XFCE) & XRDP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xfce4 xfce4-goodies xrdp
+          
+          # إعداد XRDP ليعمل بشكل صحيح مع XFCE
+          sudo sed -i.bak 's/test -x \/etc\/X11\/Xsession/# test -x \/etc\/X11\/Xsession/g' /etc/xrdp/startwm.sh
+          sudo sed -i.bak 's/exec \/bin\/sh \/etc\/X11\/Xsession/# exec \/bin\/sh \/etc\/X11\/Xsession/g' /etc/xrdp/startwm.sh
+          echo "startxfce4" | sudo tee -a /etc/xrdp/startwm.sh
+          
+          # تشغيل الخدمة
+          sudo service xrdp start
+          echo "XRDP Installed and Started"
+
+      # ====================================================
+      # 2. إعداد المستخدم والباسورد
+      # ====================================================
+      - name: Create User & Password
+        run: |
+          # إنشاء المستخدم
+          sudo useradd -m -s /bin/bash $aa2
+          sudo usermod -aG sudo $aa2
+          
+          # تعيين كلمة المرور
+          echo "$aa2:$aa3" | sudo chpasswd
+          echo "runner:$aa3" | sudo chpasswd
+          echo "User created successfully"
+
+      # ====================================================
+      # 3. تشغيل Ngrok لفتح الاتصال
+      # ====================================================
+      - name: Start Ngrok & Keep Alive
+        run: |
+          # تحميل Ngrok نسخة اللينكس
+          wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+          tar -xvzf ngrok-v3-stable-linux-amd64.tgz
+          chmod +x ngrok
+
+          # التحقق من وجود التوكن
+          if [ -z "$NGROK_TOKEN" ]; then
+            echo "Error: NGROK_TOKEN is missing. Please add it to GitHub Secrets."
+            exit 1
+          fi
+
+          # التوثيق وتشغيل النفق
+          ./ngrok config add-authtoken $NGROK_TOKEN
+          ./ngrok tcp 3389 > /dev/null &
+
+          echo "Waiting for Ngrok to initialize..."
+          sleep 10
+
+          # جلب الرابط العام
+          # نستخدم حلقة بسيطة للتأكد من أن الرابط متاح
+          for i in {1..10}; do
+            PUBLIC_URL=$(curl -s localhost:4040/api/tunnels | jq -r .tunnels[0].public_url)
+            if [ "$PUBLIC_URL" != "null" ] && [ -n "$PUBLIC_URL" ]; then
+              break
+            fi
+            echo "Retrying to get public URL..."
+            sleep 2
+          done
+
+          echo "========================================================"
+          echo "   LOGIN DETAILS (RDP)"
+          echo "========================================================"
+          echo "   Address:  $PUBLIC_URL"
+          echo "   (Remove 'tcp://' when pasting in RDP App)"
+          echo "   User:     $aa2"
+          echo "   Pass:     $aa3"
+          echo "========================================================"
+
+          # حلقة لا نهائية لإبقاء السيرفر يعمل
+          while true; do sleep 30; done
