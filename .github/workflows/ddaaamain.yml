@@ -1,0 +1,126 @@
+name: Super Fast - NoMachine & RDP - Data Saver Edition
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deployment:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    env:
+      # ====================================================
+      # إعدادات المستخدم
+      # ====================================================
+      aa2: "XCDOOD"
+      aa3: "Zxxz4444"
+      KEY_CHOICE: "1"
+
+      # الروابط الخاصة بك
+      APP_BUNDLE_URL: "https://tinyurl.com/appk5214s"
+      ZIP_URL: "https://tinyurl.com/filesdownlaodkkda45"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ====================================================
+      # 1. إعداد المستخدمين وتحسين الويندوز لتوفير البيانات
+      # ====================================================
+      - name: Setup System & Data Saving
+        shell: pwsh
+        run: |
+          Write-Host "==== 1. CONFIGURING USERS & DATA SAVER ===="
+          # فتح الـ RDP
+          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0 -Force
+          
+          # تعطيل التأثيرات البصرية لتقليل نقل البيانات (قفل الخلفية والأنيميشن)
+          $VisualEffects = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects"
+          if (!(Test-Path $VisualEffects)) { New-Item $VisualEffects -Force }
+          Set-ItemProperty $VisualEffects -Name VisualFXSetting -Value 2 -Force
+
+          # إنشاء المستخدم
+          $User = $env:aa2
+          $Pass = $env:aa3
+          $Secure = ConvertTo-SecureString $Pass -AsPlainText -Force
+          New-LocalUser -Name $User -Password $Secure -FullName $User -AccountNeverExpires -ErrorAction SilentlyContinue
+          Add-LocalGroupMember Administrators $User
+          Add-LocalGroupMember "Remote Desktop Users" $User
+
+      # ====================================================
+      # 2. تحميل الحزمة وتثبيت Tailscale & NoMachine
+      # ====================================================
+      - name: Install Connectivity Tools (Tailscale & NoMachine)
+        shell: pwsh
+        run: |
+          $TempDir = Join-Path $env:TEMP 'AppBundle'
+          New-Item -Path $TempDir -ItemType Directory -Force | Out-Null
+          $BundleZip = Join-Path $TempDir 'bundle.zip'
+          
+          Write-Host "Downloading Bundle..."
+          Invoke-WebRequest -Uri $env:APP_BUNDLE_URL -OutFile $BundleZip -UseBasicParsing
+          
+          Write-Host "Extracting..."
+          $ExtractDir = Join-Path $TempDir 'Extracted'
+          Expand-Archive -Path $BundleZip -DestinationPath $ExtractDir -Force
+
+          # --- تثبيت NoMachine (الأفضل لتوفير البيانات) ---
+          Write-Host "Installing NoMachine..."
+          choco install nomachine -y --no-progress
+
+          # --- تثبيت Tailscale ---
+          $KeyName = "key$($env:KEY_CHOICE).txt"
+          $KeyFile = Get-ChildItem -Path $ExtractDir -Filter $KeyName -Recurse | Select-Object -First 1
+          $Encoded = Get-Content $KeyFile.FullName -Raw
+          $Bytes = [System.Convert]::FromBase64String($Encoded.Trim())
+          $RealKey = [System.Text.Encoding]::UTF8.GetString($Bytes).Trim()
+
+          $TsInstaller = Get-ChildItem -Path $ExtractDir -Include "*tailscale*.msi","*tailscale*.exe" -Recurse | Select-Object -First 1
+          Start-Process msiexec.exe -ArgumentList '/i', $TsInstaller.FullName, '/quiet', '/norestart' -Wait
+          
+          $TsExe = Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe'
+          Start-Process -FilePath $TsExe -ArgumentList "up --authkey=$RealKey --hostname=Win-NoMachine-$(Get-Random)" -Wait
+          
+          $ip = & $TsExe ip -4
+          Write-Host "=========================================="
+          Write-Host "YOUR TAILSCALE IP: $ip" -ForegroundColor Green
+          Write-Host "=========================================="
+
+      # ====================================================
+      # 3. تثبيت RustDesk و NST Browser
+      # ====================================================
+      - name: Install Apps
+        shell: pwsh
+        run: |
+          $ExtractDir = Join-Path $env:TEMP 'AppBundle\Extracted'
+          
+          # تثبيت RustDesk (كاحتياطي)
+          $RustInstaller = Get-ChildItem -Path $ExtractDir -Filter "*rust*.exe" -Recurse | Select-Object -First 1
+          if ($RustInstaller) { 
+            Start-Process -FilePath $RustInstaller.FullName -ArgumentList "--silent-install" -NoNewWindow 
+          }
+
+          # استخراج ملفات الـ Payload
+          $PayloadZip = Join-Path $env:TEMP 'payload.zip'
+          Invoke-WebRequest -Uri $env:ZIP_URL -OutFile $PayloadZip -UseBasicParsing
+          $UserDir = "C:\Users\$($env:aa2)\Desktop"
+          New-Item -ItemType Directory -Path $UserDir -Force | Out-Null
+          Expand-Archive -Path $PayloadZip -DestinationPath $UserDir -Force
+
+          # تثبيت NST Browser
+          $NstInstaller = Get-ChildItem -Path $ExtractDir -Filter "*nst*.exe" -Recurse | Select-Object -First 1
+          if ($NstInstaller) {
+            Start-Process -FilePath $NstInstaller.FullName -ArgumentList "/VERYSILENT", "/NORESTART" -Wait
+          }
+
+      # ====================================================
+      # 4. الحفاظ على تشغيل الجلسة
+      # ====================================================
+      - name: Keep Alive
+        shell: pwsh
+        run: |
+          Write-Host "Session is running. Connect via NoMachine or RDP using the Tailscale IP."
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          while ($sw.Elapsed.TotalMinutes -lt 350) {
+            Start-Sleep -Seconds 60
+          }
